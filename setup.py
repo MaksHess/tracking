@@ -25,7 +25,8 @@ requirements = [
     "scikit-learn",
     "colorcet",
     "pyarrow",
-    "btrack"
+    "btrack",
+    "dask",
 ]
 
 test_requirements = []
