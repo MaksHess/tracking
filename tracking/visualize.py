@@ -1,32 +1,25 @@
 # %%
 import json
-import logging
-from dataclasses import asdict
 from pathlib import Path
 
 import btrack
 import napari
 import numpy as np
 import polars as pl
-from btrack import config
 from btrack.utils import tracks_to_napari
 
-from zfish.tracking.io import extract_features, load_features, load_image, load_labels
+from tracking.io import load_features, load_image, load_labels
 
-logger = logging.getLogger(__name__)
-logger.setLevel("INFO")
-
-
-# %%
+# %% specify paths
 fn_labels = Path(r"M:\marvwy\VisiScope\20231026H1A488_compressed\20231026H1A1_s1_segmentation.zarr")
 fn_image = Path(r"E:\sshami\Visiscope\20231026H1A488_compressed\20231026H1A1_s1.zarr")
+fn_features = Path(r"M:\marvwy\VisiScope\20231026H1A488_compressed\20231026H1A1_s1.parquet")
+
+# %% load the first 10 images/labels and features
 lbls = load_labels(fn_labels, n_max=10)
-# %%
 img = load_image(fn_image, level=2, scale=(1.0, 2.6, 2.6), n_max=10)
+df = load_features(fn_features)
 # %%
-lbls.name = 'label'
-# %%
-from zfish.visualize.imshow import imshow_spatial_image
 
 viewer = napari.Viewer()
 viewer.add_labels(np.asarray(lbls), scale=(1, 1.0, 0.65, 0.65))
@@ -164,7 +157,6 @@ import json
 from pathlib import Path
 
 from btrack.io import HDF5FileHandler
-
 from zfish.tracking.tracking import Parameters
 
 files = Path(
