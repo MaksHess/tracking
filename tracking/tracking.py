@@ -1,3 +1,8 @@
+"""Code for tracking of cells based on features extraction from label images.
+Example usage:
+
+python tracking.py -i /path/to/input.parquet "my_first_experiment" 
+"""
 import argparse
 import datetime
 import json
@@ -15,15 +20,6 @@ from btrack.constants import BayesianUpdates
 logger = logging.getLogger(__name__)
 
 Volume: TypeAlias = tuple[tuple[float, float], ...]
-
-# FEATURES = [
-#     "PhysicalSize",
-#     "Roundness",
-#     "H1A_Median",
-#     "H1A_StandardDeviation",
-#     "H1A_Skewness",
-#     "H1A_Kurtosis",
-# ]
 
 FEATURES = [
     "Elongation",
@@ -45,6 +41,14 @@ FEATURES = [
     "PrincipalAxes.c-x",
     "PrincipalAxes.c-y",
     "PrincipalAxes.c-z",
+    "H1A_Kurtosis",
+    "H1A_Maximum",
+    "H1A_Mean",
+    "H1A_Median",
+    "H1A_Minimum",
+    "H1A_Skewness",
+    "H1A_StandardDeviation",
+    "H1A_Variance",
 ]
 
 TRACKER_CONFIG = [
@@ -70,12 +74,10 @@ HYPOTHESIS_CONFIG = [
     "apoptosis_rate",
     "relax",
 ]
-OTHER_CONFIG = [
-    "optimize",
-    "_repr_params"
-]
+OTHER_CONFIG = ["optimize", "_repr_params"]
 
 
+# Available parameters
 @dataclass
 class Parameters:
     # Tracker
@@ -104,8 +106,9 @@ class Parameters:
     segmentation_miss_rate: float = 0.1
     apoptosis_rate: float = 0.001
     relax: bool = True
-    
+
     _repr_params: tuple[str, ...] = tuple()
+
     def __post_init__(self):
         if self.optimizer_options is None:
             self.optimizer_options = {"tm_lim": 60_000}
@@ -113,8 +116,7 @@ class Parameters:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("experiment_nr", type=int)
-    parser.add_argument("idx", type=int)
+    parser.add_argument("experiment_name", type=str)
     parser.add_argument("-i", "--input_path", type=str)
     parser.add_argument(
         "-c",
@@ -125,29 +127,24 @@ def main():
     args = parser.parse_args()
 
     output_folder = (
-        Path(args.input_path).parent / "tracking_results" / f"run_{args.experiment_nr}"
+        Path(args.input_path).parent / "tracking_results" / f"{args.experiment_name}"
     )
     output_folder.mkdir(exist_ok=True, parents=True)
 
-    base_name = Path(args.input_path).stem
-    tracks_out_file = output_folder / f"{base_name}_{args.idx:03d}_tracks.h5"
-    config_out_file = output_folder / f"{base_name}_{args.idx:03d}_config.json"
-    params_out_file = output_folder / f"{base_name}_{args.idx:03d}_params.json"
-
-    # Load base configuration (most of it overwritten in this script!).
-    base_config = btrack.config.load_config(args.base_config_path)
-
-    pprint(base_config)
-
     # Load features & generate tracking objects.
-    df = (
-        pl.read_parquet(args.input_path)
-        .select(["t", "z", "y", "x"] + FEATURES)
-    )
+    df = pl.read_parquet(args.input_path).select(["t", "z", "y", "x"] + FEATURES)
     objs = btrack.io.objects_from_array(df.to_numpy(), default_keys=df.columns)
 
-    # Specify the experiment to run using (multiple) parameter_gen.
+    # Specify the experiment to run using (multiple) parameter_gen
     parameter_generators = [
+        parameter_gen(
+            lambda_branch=(3.0, 5.0, 10.0, 20.0),
+            dist_thresh=(15.0,),
+        ),
+        # parameter_gen(
+        #     lambda_link=(2.0, 5.0, 10.0, 20.0, 40.0, 80.0),
+        #     dist_thresh=(15.0,),
+        # )
         # parameter_gen(
         #     time_thresh=(1.0, 2.0),
         #     dist_thresh=(15.0,),
@@ -162,69 +159,50 @@ def main():
         #         tuple(FEATURES)
         #     ),
         # ),
-        parameter_gen(
-            lambda_branch=(3.0, 5.0, 10.0, 20.0, 40.0, 80.0, 100.0),
-            dist_thresh=(15.0,),   
-        ),
-        parameter_gen(
-            lambda_link=(2.0, 5.0, 10.0, 20.0, 40.0, 80.0),
-            dist_thresh=(15.0,),   
-        )
-        # parameter_gen(
-        #     time_thresh=(1.0, 2.0,),
-        #     dist_thresh=(15.0,),
-        # ),
-        # parameter_gen(
-        #     lambda_branch=(10.0, 20.0, 40.0, 80.0),
-        #     dist_thresh=(15.0,),
-        #     time_thresh=(1.0,),
-        # ),
+
     ]
 
     # Select one parameter file based on slurm array id.
     all_parameters = list(chain(*parameter_generators))
-    parameters = all_parameters[int(args.idx)]
 
-    # Overwrite parameters in base_config & save the result
-    for k, v in asdict(parameters).items():
-        if k in TRACKER_CONFIG:
-            setattr(base_config, k, v)
-        elif k in MOTION_CONFIG:
-            setattr(base_config.motion_model, k, v)
-        elif k in HYPOTHESIS_CONFIG:
-            setattr(base_config.hypothesis_model, k, v)
-        elif k in OTHER_CONFIG:
-            continue
-        else:
-            raise ValueError(f"Unknown argument {k}")
+    for i, parameters in enumerate(all_parameters):
+        base_name = Path(args.input_path).stem
+        tracks_out_file = output_folder / f"{base_name}_{i:03d}_tracks.h5"
+        config_out_file = output_folder / f"{base_name}_{i:03d}_config.json"
+        params_out_file = output_folder / f"{base_name}_{i:03d}_params.json"
 
-    pprint(base_config)
-    with open(config_out_file, "w") as f:
-        f.write(base_config.json(indent=2))
-    with open(params_out_file, "w") as f:
-        json.dump(asdict(parameters), f, indent=2)
+        # Load base configuration (most of it overwritten in this script!).
+        base_config = btrack.config.load_config(args.base_config_path)
 
-    with btrack.BayesianTracker() as tracker:
-        tracker.configure(base_config)
-        #     # tracker.features = FEATURES
-        tracker.append(objs)
-        #     tracker.max_lost = 1
-        #     tracker.update_method = BayesianUpdates.APPROXIMATE
-        #     tracker.max_search_radius = 15
-        #     tracker.volume = ((0, 300), (0, 300), (0, 251.0))
-        tracker.track()
-        #     hypoth = tracker.optimise(options={"tm_lim": 60_000 * 100})
-        if parameters.optimize:
-            optimized = tracker.optimise()
+        pprint(base_config)
+        # Overwrite parameters in base_config & save the result
+        for k, v in asdict(parameters).items():
+            if k in TRACKER_CONFIG:
+                setattr(base_config, k, v)
+            elif k in MOTION_CONFIG:
+                setattr(base_config.motion_model, k, v)
+            elif k in HYPOTHESIS_CONFIG:
+                setattr(base_config.hypothesis_model, k, v)
+            elif k in OTHER_CONFIG:
+                continue
+            else:
+                raise ValueError(f"Unknown argument {k}")
 
-        tracker.export(tracks_out_file, obj_type="obj_type_1")
+        pprint(base_config)
+        with open(config_out_file, "w") as f:
+            f.write(base_config.json(indent=2))
+        with open(params_out_file, "w") as f:
+            json.dump(asdict(parameters), f, indent=2)
 
-    #     tracker.export(
-    #         r"C:\Users\hessm\Documents\Programming\Python\zfish\zfish\tracking\quick2.h5",
-    #         obj_type="obj_type_1",
-    #     )
-    #     data, properties, graph = tracker.to_napari()
-    #     tracks = tracker.tracks
+        # Run the tracker
+        with btrack.BayesianTracker() as tracker:
+            tracker.configure(base_config)
+            tracker.append(objs)
+            tracker.track()
+            if parameters.optimize:
+                optimized = tracker.optimise()
+
+            tracker.export(tracks_out_file, obj_type="obj_type_1")
 
 
 def parameter_gen(
@@ -248,10 +226,15 @@ def parameter_gen(
     apoptosis_rate: float | None = None,
     relax: bool | None = None,
 ):
-    params_set = {k: v for k, v in locals().items() if v is not None and k != "repr_params"}
+    params_set = {
+        k: v for k, v in locals().items() if v is not None and k != "repr_params"
+    }
     repr_params = tuple([k for k, v in params_set.items() if len(v) > 1])
     for value_pair in product(*params_set.values()):
-        yield Parameters(**{k: v for k, v in zip(params_set.keys(), value_pair)}, _repr_params=repr_params)
+        yield Parameters(
+            **{k: v for k, v in zip(params_set.keys(), value_pair)},
+            _repr_params=repr_params,
+        )
 
 
 if __name__ == "__main__":

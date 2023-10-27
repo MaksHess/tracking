@@ -10,8 +10,8 @@ from btrack.utils import tracks_to_napari
 from tracking_io import load_features, load_image, load_labels
 
 # %% specify paths
-fn_labels = Path(r"M:\marvwy\VisiScope\20231026H1A488_compressed\20231026H1A1_s1_segmentation.zarr")
-fn_image = Path(r"E:\sshami\Visiscope\20231026H1A488_compressed\20231026H1A1_s1.zarr")
+# fn_labels = Path(r"M:\marvwy\VisiScope\20231026H1A488_compressed\20231026H1A1_s1_segmentation.zarr")
+# fn_image = Path(r"E:\sshami\Visiscope\20231026H1A488_compressed\20231026H1A1_s1.zarr")
 fn_features = Path(r"M:\marvwy\VisiScope\20231026H1A488_compressed\20231026H1A1_s1.parquet")
 
 # %% load the first 10 images/labels and features
