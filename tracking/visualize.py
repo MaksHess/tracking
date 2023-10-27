@@ -28,15 +28,16 @@ viewer.add_points(df.select(['t', 'z', 'y', 'x']))
 # imshow_spatial_image(img, viewer)
 
 
+# %%
+
 # %% Load tracks
 import json
 from pathlib import Path
 
 from btrack.io import HDF5FileHandler
-from zfish.tracking.tracking import Parameters
 
 files = Path(
-    r"C:\Users\hessm\Documents\Programming\Python\zfish\zfish\tracking\local_data\tracking_results\run_2"
+    r"M:\marvwy\VisiScope\20231026H1A488_compressed\tracking_results\test2"
 )
 
 trackss = []

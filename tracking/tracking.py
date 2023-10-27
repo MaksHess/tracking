@@ -1,7 +1,7 @@
 """Code for tracking of cells based on features extraction from label images.
 Example usage:
 
-python tracking.py -i /path/to/input.parquet "my_first_experiment" 
+python tracking.py -c /path/to/defaults.json -i /path/to/input.parquet "my_first_experiment" 
 """
 import argparse
 import datetime
@@ -138,8 +138,9 @@ def main():
     # Specify the experiment to run using (multiple) parameter_gen
     parameter_generators = [
         parameter_gen(
-            lambda_branch=(3.0, 5.0, 10.0, 20.0),
-            dist_thresh=(15.0,),
+            # lambda_branch=(3.0, 5.0, 10.0, 20.0),
+            dist_thresh=(10.0, 15.0, 20.0),
+            # max_search_radius=(10.0, 15.0, 20.0)
         ),
         # parameter_gen(
         #     lambda_link=(2.0, 5.0, 10.0, 20.0, 40.0, 80.0),
