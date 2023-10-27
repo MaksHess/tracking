@@ -1,8 +1,7 @@
 import numpy as np
 import polars as pl
 import zarr
-
-from tracking.conversions import to_si
+from conversions import to_si
 
 
 # %% Image, label & feature loaders
