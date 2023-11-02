@@ -16,10 +16,22 @@ from typing import TypeAlias
 import btrack
 import polars as pl
 from btrack.constants import BayesianUpdates
+from sklearn.preprocessing import PowerTransformer, RobustScaler, StandardScaler
+from utils import apply_transformer_to_dataframe
 
 logger = logging.getLogger(__name__)
 
 Volume: TypeAlias = tuple[tuple[float, float], ...]
+
+LOG_TRANSFORM_PATTERNS = [
+    "^.*_Mean$",
+    "^.*_Median$",
+    "^.*_Maximum$",
+    "^.*_Minimum$",
+    "^.*_StandardDeviation$",
+    "^.*_Variance$",
+]
+
 
 FEATURES = [
     "Elongation",
@@ -59,7 +71,9 @@ TRACKER_CONFIG = [
     "max_search_radius",
     "optimizer_options",
 ]
-MOTION_CONFIG = ["max_lost"]
+
+MOTION_CONFIG = ["max_lost", "prob_not_assign"]
+
 HYPOTHESIS_CONFIG = [
     "lambda_time",
     "lambda_dist",
@@ -91,16 +105,17 @@ class Parameters:
 
     # Motion model
     max_lost: int = 1
+    prob_not_assign: float = 0.1
 
     # Hypothesis model
     lambda_time: float = 5.0
     lambda_dist: float = 3.0
     lambda_link: float = 10.0
-    lambda_branch: float = 20.0
+    lambda_branch: float = 50.0
 
     theta_dist: float = 20.0
     theta_time: float = 5.0
-    dist_thresh: float = 15.0
+    dist_thresh: float = 40.0
     time_thresh: float = 2.0
     apop_thresh: float = 5
     segmentation_miss_rate: float = 0.1
@@ -111,37 +126,126 @@ class Parameters:
 
     def __post_init__(self):
         if self.optimizer_options is None:
-            self.optimizer_options = {"tm_lim": 60_000}
+            self.optimizer_options = {"tm_lim": 100_000}
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment_name", type=str)
+    parser.add_argument("-n", "--tracking_to_frame_n", type=int, default=None)
     parser.add_argument("-i", "--input_path", type=str)
     parser.add_argument(
         "-c",
         "--base_config_path",
         type=str,
-        default="/data/active/marvwy/VisiScope/20230329_compressed/napari_v2.json",
+        default=r"C:\Users\hessm\Documents\zfish_local\live_data\my_cell_config.json",
     )
     args = parser.parse_args()
-
+    
+    if args.base_config_path is None:
+        from btrack import datasets
+        args.base_config_path = datasets.ce
     output_folder = (
-        Path(args.input_path).parent / "tracking_results" / f"{args.experiment_name}"
+        Path(args.input_path).parent / "tracking_results" / (f"{args.experiment_name}" + ("" if args.tracking_to_frame_n is None else f"_f{args.tracking_to_frame_n}"))
     )
     output_folder.mkdir(exist_ok=True, parents=True)
 
     # Load features & generate tracking objects.
-    df = pl.read_parquet(args.input_path).select(["t", "z", "y", "x"] + FEATURES)
+    df = pl.read_parquet(args.input_path)
+    if args.tracking_to_frame_n is not None:
+        df = df.filter(pl.col('t') <= args.tracking_to_frame_n)
+    
+    # Preprocess Features.
+    df = apply_transformer_to_dataframe(df, StandardScaler(), columns=FEATURES)
+    df = df.select(["t", "z", "y", "x"] + [f for f in FEATURES if f in df.columns])
     objs = btrack.io.objects_from_array(df.to_numpy(), default_keys=df.columns)
 
     # Specify the experiment to run using (multiple) parameter_gen
     parameter_generators = [
         parameter_gen(
-            # lambda_branch=(3.0, 5.0, 10.0, 20.0),
-            dist_thresh=(10.0, 15.0, 20.0),
-            # max_search_radius=(10.0, 15.0, 20.0)
+            max_search_radius=(6.0, 8.0, 10.0, 12.0),
+            dist_thresh=(10.0, 12.0, 14.0, 16.0, 18.0, 20.0),
+            time_thresh=(1.0,),
+            max_lost=(1,),
+            lambda_link=(1.0, 5.0, 1000.0),
+            lambda_branch=(1.0, 5.0, 1000.0),
+            # lambda_link=(20.0, ),
+            # lambda_branch=(40.0, ),
+            prob_not_assign=(0.1, ),
+            # max_search_radius=(11.0,),
+            # update_method=(0,),
+            # optimize=(True,),
+            # apop_thresh=(0, 1, 2, 5, 10),
+            # segmentation_miss_rate=(0.01, 0.05, 0.1, 0.3),
+            # apoptosis_rate=(0.001, 0.01, 0.05, 0.1),
         ),
+        # parameter_gen(
+        #     time_thresh=(1.0,),
+        #     dist_thresh=(16.0,),
+        #     lambda_link=(20.0, ),
+        #     lambda_branch=(50.0, ),
+        #     max_search_radius=(11.0,),
+        #     update_method=(0,),
+        #     tracking_updates=(("motion", "visual"),),
+        #     features=(
+        #         tuple(),
+        #         ("PhysicalSize",),
+        #         ("Roundness",),
+        #         ('Flatness', ),
+        #         ("H1A_Median",),
+        #         ("H1A_Median", "H1A_Skewness", "H1A_Kurtosis"),
+        #         (
+        #             "H1A_Median",
+        #             "H1A_Kurtosis",
+        #             "H1A_Skewness",
+        #             "H1A_StandardDeviation",
+        #             "H1A_Variance",
+        #         ),
+        #         (
+        #             "Elongation",
+        #             "EquivalentEllipsoidDiameter.a",
+        #             "EquivalentEllipsoidDiameter.b",
+        #             "EquivalentEllipsoidDiameter.c",
+        #             "EquivalentSphericalPerimeter",
+        #             "EquivalentSphericalRadius",
+        #             "Flatness",
+        #             "Perimeter",
+        #             "PhysicalSize",
+        #         ),
+        #         (
+        #             "PrincipalAxes.a-x",
+        #             "PrincipalAxes.a-y",
+        #             "PrincipalAxes.a-z",
+        #             "PrincipalAxes.b-x",
+        #             "PrincipalAxes.b-y",
+        #             "PrincipalAxes.b-z",
+        #             "PrincipalAxes.c-x",
+        #             "PrincipalAxes.c-y",
+        #             "PrincipalAxes.c-z",
+        #         ),
+        #         (
+        #             "Elongation",
+        #             "EquivalentEllipsoidDiameter.a",
+        #             "EquivalentEllipsoidDiameter.b",
+        #             "EquivalentEllipsoidDiameter.c",
+        #             "EquivalentSphericalPerimeter",
+        #             "EquivalentSphericalRadius",
+        #             "Flatness",
+        #             "Perimeter",
+        #             "PhysicalSize",
+        #             "PrincipalAxes.a-x",
+        #             "PrincipalAxes.a-y",
+        #             "PrincipalAxes.a-z",
+        #             "PrincipalAxes.b-x",
+        #             "PrincipalAxes.b-y",
+        #             "PrincipalAxes.b-z",
+        #             "PrincipalAxes.c-x",
+        #             "PrincipalAxes.c-y",
+        #             "PrincipalAxes.c-z",
+        #         ),
+        #         FEATURES,
+        #     ),
+        # ),
         # parameter_gen(
         #     lambda_link=(2.0, 5.0, 10.0, 20.0, 40.0, 80.0),
         #     dist_thresh=(15.0,),
@@ -160,7 +264,6 @@ def main():
         #         tuple(FEATURES)
         #     ),
         # ),
-
     ]
 
     # Select one parameter file based on slurm array id.
@@ -214,6 +317,7 @@ def parameter_gen(
     tracking_updates: tuple[tuple[str, ...], ...] | None = None,
     max_search_radius: tuple[float, ...] | None = None,
     max_lost: tuple[int, ...] | None = None,
+    prob_not_assign: tuple[float, ...] | None = None,
     lambda_time: float | None = None,
     lambda_dist: float | None = None,
     lambda_link: float | None = None,

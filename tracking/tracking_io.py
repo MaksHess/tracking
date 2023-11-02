@@ -1,10 +1,46 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 import zarr
-from conversions import to_si
+from btrack.io import HDF5FileHandler
 
+from tracking.conversions import to_si
 
 # %% Image, label & feature loaders
+
+def load_params(fn_params):
+    with open(fn_params) as fh:
+        params_dict = json.load(fh)
+        params = {
+            k: v
+            for k, v in params_dict.items()
+            if k not in ["tracks_out", "params_out"]
+        }
+    return params
+
+def load_tracks(fn, parameters=False):
+    fn = Path(fn)
+    with HDF5FileHandler(fn, "r") as f:
+        tracks = f.tracks
+    
+    if parameters:
+        fn_params = fn.parent / f"{'_'.join(fn.stem.split('_')[:-1] + ['params'])}.json"
+        params = load_params(fn_params)
+        return tracks, params
+    return tracks
+            
+def params_to_name(params, override_repr: tuple[str, ...] | None = None):
+    repr_params = params["_repr_params"] if override_repr is None else override_repr
+    return "; ".join(f"{k}={v}" for k, v in params.items() if k in repr_params)
+    
+def paramss_to_names(paramss):
+    return [
+        "; ".join(f"{k}={v}" for k, v in params.items() if k in params["_repr_params"])
+        for params in paramss
+    ]
+
 def load_labels(fn, scale=(1, 1.0, 0.65, 0.65), dims=("t", "z", "y", "x"), n_max=None):
     zarray = zarr.open(fn)
     n_images = len(list(zarray))
@@ -42,9 +78,12 @@ def load_image(
 ):
     arr_img = zarr.open(fn)
     if n_max is not None:
-        img = arr_img[level][:n_max, ...]
+        img = arr_img[str(level)][:n_max, ...]
+        
     else:
-        img = arr_img[level][...]
+        img = arr_img[str(level)][...]
+    if img.ndim != len(dims):
+        img = np.expand_dims(img, axis=1)
     return to_si(img, dims=dims, scale=scale, c_coords=c_coords).squeeze()
 
 

@@ -14,7 +14,7 @@ requirements = [
     "h5py",
     "numpy",
     "xarray",
-    "polars==0.18.15",
+    "polars",
     "pandas",
     "tqdm",
     "toolz",
