@@ -82,6 +82,8 @@ def napari_tree_to_point_selector(tree_napari, xyz_buffer=20):
     )
 
 def apply_transformer_to_dataframe(df, transformer, columns=None, over=None):
+    if columns == []:
+        return df
     if columns is not None:
         if over is None:
             df_passthrough = df.select(pl.exclude(columns))
